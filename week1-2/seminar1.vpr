@@ -1,0 +1,157 @@
+// 0. MAXIMUM
+method max1(x: Int, y: Int) returns (r: Int)
+    ensures r >= x
+    ensures r >= y
+{
+    if (x >= y) { r := x } else { r := y }
+}
+
+// verifies but does NOT compute the maximum 
+method max2(x: Int, y: Int) returns (r: Int)
+    ensures r >= x
+    ensures r >= y
+{
+    if (x >= y) { r := x + 1 } else { r := y + 1 }
+}
+
+
+// 1. MAX SUM
+
+method maxSum(x: Int, y: Int) returns (sum: Int, max: Int)
+    ensures sum == x + y
+    ensures max >= x && max >= y
+    ensures max == x || max == y   
+
+method maxSumClient()
+{
+    var s: Int
+    var m: Int
+    s, m := maxSum(1723, 42)
+    assert s == 1765
+    assert m == 1723
+}
+
+method maxSumImplementation(x: Int, y: Int) returns (sum: Int, max: Int)
+    ensures sum == x + y
+    ensures max >= x && max >= y
+    ensures max == x || max == y
+{
+    sum := x + y
+    if (x >= y) { max := x } else { max := y }
+}
+
+// abstract method: contract only, no body.
+method reconstructMaxSum(sum: Int, max: Int) returns (x: Int, y: Int)
+    ensures sum == x + y
+    ensures max >= x && max >= y
+    ensures max == x || max == y
+
+method reconstructMaxSumImplementation(sum: Int, max: Int) returns (x: Int, y: Int)
+    requires sum - max <= max
+    ensures sum == x + y
+    ensures max >= x && max >= y
+    ensures max == x || max == y
+{
+    x := max
+    y := sum - max
+}
+
+method reconstructClient()
+{
+    var x: Int
+    var y: Int
+    x, y := reconstructMaxSumImplementation(1765, 1723)
+    assert x + y == 1765
+    assert (x == 1723 && y == 42) || (x == 42 && y == 1723)
+}
+
+
+// 2. FORWARD REASONING (strongest postconditions)
+method forwardA(x: Int, y: Int) returns (z: Int)
+    requires 0 <= x && x <= y && y < 100
+    ensures 0 <= x && x <= y && y < 100 && z == y - x
+{
+    z := y - x
+}
+
+method forwardB()
+{
+    var x: Int
+    assume 0 <= x && x < 100
+    x := 2 * x
+    assert 0 <= x && x < 200 && x % 2 == 0
+}
+
+method forwardC()
+{
+    var x: Int
+    var y: Int
+    assume x > 0 && x < y
+    x := x + 23        // x > 23 && x - 23 < y
+    y := y - 3 * x     // x > 23 && x - 23 < y + 3 * x
+    assert x > 23 && 2 * x + y > -23
+}
+
+method forwardD()
+{
+    var x: Int
+    var y: Bool
+    assume x > 0
+    x := x + 1
+    if (y) {
+        var z: Int
+        x := x + z     // z is arbitrary, so nothing is known about x
+    } else {
+        x := 42        // SP = !y && x == 42
+    }
+    assert y || x == 42
+}
+
+
+// 3. BACKWARD REASONING (weakest preconditions)
+method backwardA(x: Int, y: Int) returns (X: Int, Y: Int)
+    requires true
+    ensures X == y && Y == x
+{
+    X := y - x         // WP: y - x == y - x, i.e. true
+    Y := y - X         // WP: X == y - x
+    X := Y + X         // WP: Y + X == y && Y == x
+}
+
+method backwardB()
+{
+    var x: Int
+    var y: Int
+    assume x + y > (x + y) * y
+    x := x + y         // WP: x + y > (x + y) * y
+    y := x * y         // WP: x > x * y
+    assert x > y
+}
+
+method backwardC()
+{
+    var x: Int
+    var y: Int
+    assume (y > 5 ==> x > 7) && (y <= 5 ==> y - x > 7)
+    if (y > 5) {
+        y := x - y     // WP: x > 7 (x is not changed)
+    } else {
+        x := y - x     // WP: y - x > 7
+    }
+    assert x > 7
+}
+
+method backwardD(x: Int) returns (y: Int)
+    requires x <= 3 || x >= 17
+    ensures y % 2 == 0
+{
+    if (x < 17) {
+        if (x > 3) {   // y := 1 is odd, so this branch must be unreachable: need x <= 3
+            y := 1
+        } else {
+            y := 2
+        }
+    } else {
+        y := 6
+    }
+}
