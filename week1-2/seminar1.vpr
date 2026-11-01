@@ -1,3 +1,4 @@
+
 // 0. MAXIMUM
 method max1(x: Int, y: Int) returns (r: Int)
     ensures r >= x
@@ -6,7 +7,7 @@ method max1(x: Int, y: Int) returns (r: Int)
     if (x >= y) { r := x } else { r := y }
 }
 
-// verifies but does NOT compute the maximum 
+// Verifies but does NOT compute the maximum (underspecification)
 method max2(x: Int, y: Int) returns (r: Int)
     ensures r >= x
     ensures r >= y
@@ -16,12 +17,13 @@ method max2(x: Int, y: Int) returns (r: Int)
 
 
 // 1. MAX SUM
-
+// (a) contract; abstract so (b) tests the contract alone
 method maxSum(x: Int, y: Int) returns (sum: Int, max: Int)
     ensures sum == x + y
     ensures max >= x && max >= y
-    ensures max == x || max == y   
+    ensures max == x || max == y   // without this line, assert m == 1723 fails
 
+// (b) client testing the contract
 method maxSumClient()
 {
     var s: Int
@@ -31,6 +33,7 @@ method maxSumClient()
     assert m == 1723
 }
 
+// (c) implementation, checked against the same contract
 method maxSumImplementation(x: Int, y: Int) returns (sum: Int, max: Int)
     ensures sum == x + y
     ensures max >= x && max >= y
@@ -40,12 +43,16 @@ method maxSumImplementation(x: Int, y: Int) returns (sum: Int, max: Int)
     if (x >= y) { max := x } else { max := y }
 }
 
-// abstract method: contract only, no body.
+// (d) abstract method: contract only, no body.
+// Without a precondition this contract is unsatisfiable for e.g. (10, 2),
+// so a caller could then prove `assert false` (trusted code base).
 method reconstructMaxSum(sum: Int, max: Int) returns (x: Int, y: Int)
     ensures sum == x + y
     ensures max >= x && max >= y
     ensures max == x || max == y
 
+// (e) implementation: only possible after adding a precondition.
+// sum - max <= max is the weakest one: the other value is forced to be sum - max.
 method reconstructMaxSumImplementation(sum: Int, max: Int) returns (x: Int, y: Int)
     requires sum - max <= max
     ensures sum == x + y
@@ -56,6 +63,7 @@ method reconstructMaxSumImplementation(sum: Int, max: Int) returns (x: Int, y: I
     y := sum - max
 }
 
+// (f) client
 method reconstructClient()
 {
     var x: Int
@@ -65,66 +73,174 @@ method reconstructClient()
     assert (x == 1723 && y == 42) || (x == 42 && y == 1723)
 }
 
+// =====================================================================
+//  Program Analysis for Software Security - Seminar 1 / Assignment 1
+// =====================================================================
+//
+//  Rules used (Lecture 2 - Foundations of Reasoning)
+//
+//  Statement   | SP(P, S)  (forward)                     | WP(S, Q)  (backward)
+//  ------------+-----------------------------------------+----------------------
+//  var x       | exists x :: P                           | for all x :: Q
+//  x := a      | exists x0 :: P[x / x0] && x == a[x / x0]| Q[x / a]
+//              | (= P && x == a  if x not in P and a)    |
+//  assert R    | P && R                                  | R && Q
+//  assume R    | P && R                                  | R ==> Q
+//  S1; S2      | SP(SP(P, S1), S2)                       | WP(S1, WP(S2, Q))
+//  S1 [] S2    | SP(P, S1) || SP(P, S2)                  | WP(S1, Q) && WP(S2, Q)
+//
+//  if (b) { S1 } else { S2 }  is encoded as  (assume b; S1) [] (assume !b; S2)
+//
+//  Forward VC :  SP(Pre, S) ==> Post
+//  Backward VC:  Pre ==> WP(S, Post)
 
-// 2. FORWARD REASONING (strongest postconditions)
+//  SP = Strongest Postcondition: the strongest predicate that holds after executing S, given that Pre holds before S.
+//  WP = Weakest Precondition: the weakest predicate that must hold before executing S, in order for Post to hold after S.
+//  P0 = Precondition, P1 = Postcondition, P2 = SP, P3 = WP
+// =====================================================================
+
+
+// =====================================================================
+// 2. FORWARD REASONING  (strongest postconditions, top -> bottom)
+//    Each comment shows the SP holding AFTER the line.
+// =====================================================================
+
 method forwardA(x: Int, y: Int) returns (z: Int)
     requires 0 <= x && x <= y && y < 100
+    // P0 = 0 <= x && x <= y && y < 100
     ensures 0 <= x && x <= y && y < 100 && z == y - x
 {
     z := y - x
+    // SP(P0, z := y - x) = exists z0 :: P0[z / z0] && z == (y - x)[z / z0]
+    //   z occurs neither in P0 nor in y - x, so the rule simplifies to P0 && z == a:
+    //   = 0 <= x && x <= y && y < 100 && z == y - x
+    // VC: SP ==> Post holds (they are identical)
 }
 
 method forwardB()
 {
     var x: Int
+    // SP(true, var x) = exists x :: true = true
     assume 0 <= x && x < 100
+    // SP(true, assume R) = true && R = 0 <= x && x < 100
     x := 2 * x
+    // SP(P, x := 2 * x) = exists x0 :: P[x / x0] && x == (2 * x)[x / x0]
+    //   = exists x0 :: 0 <= x0 && x0 < 100 && x == 2 * x0
+    //   x is twice some x0 in 0..99, so x is even and 0 <= x <= 198:= 0 <= x && x < 200 && x % 2 == 0
     assert 0 <= x && x < 200 && x % 2 == 0
+    // assert R checks P ==> R (here P == R); SP(P, assert R) = P && R
 }
 
 method forwardC()
 {
     var x: Int
+    // SP(true, var x) = exists x :: true = true
     var y: Int
+    // SP(true, var y) = exists y :: true = true
     assume x > 0 && x < y
-    x := x + 23        // x > 23 && x - 23 < y
-    y := y - 3 * x     // x > 23 && x - 23 < y + 3 * x
+    // SP(true, assume R) = true && R
+    //   = x > 0 && x < y
+    x := x + 23
+    // SP = exists x0 :: (x > 0 && x < y)[x / x0] && x == (x + 23)[x / x0]
+    //    = exists x0 :: x0 > 0 && x0 < y && x == x0 + 23
+    //   substitute x0 = x - 23:
+    //    = x - 23 > 0 && x - 23 < y
+    //    = x > 23 && x - 23 < y
+    y := y - 3 * x
+    // SP = exists y0 :: (x > 23 && x - 23 < y)[y / y0] && y == (y - 3 * x)[y / y0]
+    //    = exists y0 :: x > 23 && x - 23 < y0 && y == y0 - 3 * x
+    //   substitute y0 = y + 3 * x:
+    //    = x > 23 && x - 23 < y + 3 * x
+    //    = x > 23 && 2 * x + y > -23
     assert x > 23 && 2 * x + y > -23
+    // assert R checks P ==> R (here P == R)
 }
 
 method forwardD()
 {
     var x: Int
+    // SP(true, var x) = true
     var y: Bool
+    // SP(true, var y) = true
     assume x > 0
+    // SP(true, assume x > 0) = x > 0
     x := x + 1
+    // SP = exists x0 :: x0 > 0 && x == x0 + 1
+    //   substitute x0 = x - 1:
+    //    = x - 1 > 0
+    //    = x > 1                                              (call this P)
+
+    // if (y) {S1} else {S2}  ==  (assume y; S1) [] (assume !y; S2)
     if (y) {
+        // SP(P, assume y) = x > 1 && y
         var z: Int
-        x := x + z     // z is arbitrary, so nothing is known about x
+        // SP(.., var z) = exists z :: x > 1 && y
+        //   = x > 1 && y                       (z is not free in the predicate)
+        x := x + z
+        // SP = exists x0 :: x0 > 1 && y && x == x0 + z
+        //   substitute x0 = x - z:
+        //    = y && x - z > 1
+        // z is local to this block, so when the block ends it is quantified away:
+        //   exists z :: y && x - z > 1  =  y            (pick z = x - 2)
+        // SP1 = y
     } else {
-        x := 42        // SP = !y && x == 42
+        // SP(P, assume !y) = x > 1 && !y
+        x := 42
+        // SP = exists x0 :: x0 > 1 && !y && x == 42
+        //   = !y && x == 42                    (x0 = 2 witnesses the exists)
+        // SP2 = !y && x == 42
     }
+    // SP(P, S1 [] S2) = SP1 || SP2
+    //   = y || (!y && x == 42)
+    //   = y || x == 42
     assert y || x == 42
+    // assert R checks P ==> R (here P == R)
 }
 
 
-// 3. BACKWARD REASONING (weakest preconditions)
+// =====================================================================
+// 3. BACKWARD REASONING  (weakest preconditions, bottom -> top)
+//    Read each method from the last line upward.
+//    Each comment shows the WP holding BEFORE the line.
+// =====================================================================
+
 method backwardA(x: Int, y: Int) returns (X: Int, Y: Int)
     requires true
+    // VC: Pre ==> WP  is  true ==> true, valid
     ensures X == y && Y == x
+    // Q = X == y && Y == x
 {
-    X := y - x         // WP: y - x == y - x, i.e. true
-    Y := y - X         // WP: X == y - x
-    X := Y + X         // WP: Y + X == y && Y == x
+    // WP(X := y - x, X == y - x) = (X == y - x)[X / y - x]
+    //   = y - x == y - x
+    //   = true
+    X := y - x
+    // WP(Y := y - X, Y + X == y && Y == x) = (Y + X == y && Y == x)[Y / y - X]
+    //   = (y - X) + X == y && y - X == x
+    //   = true && X == y - x
+    //   = X == y - x
+    Y := y - X
+    // WP(X := Y + X, Q) = Q[X / Y + X]
+    //   = Y + X == y && Y == x
+    X := Y + X
 }
 
 method backwardB()
 {
     var x: Int
     var y: Int
+    // WP(var x; var y, R ==> W) = forall x :: forall y :: (R ==> W)
+    //   For this to be valid for every x and y, the weakest R is W itself.
     assume x + y > (x + y) * y
-    x := x + y         // WP: x + y > (x + y) * y
-    y := x * y         // WP: x > x * y
+    // WP(assume R, W) = R ==> W
+    //   W = x + y > (x + y) * y                      (computed on the next line)
+    // WP(x := x + y, x > x * y) = (x > x * y)[x / x + y]
+    //   = x + y > (x + y) * y
+    x := x + y
+    // WP(y := x * y, x > y) = (x > y)[y / x * y]
+    //   = x > x * y
+    y := x * y
+    // WP(assert x > y, true) = x > y && true
+    //   = x > y
     assert x > y
 }
 
@@ -132,26 +248,66 @@ method backwardC()
 {
     var x: Int
     var y: Int
+    // weakest R such that forall x, y :: R ==> W  is  R = W
     assume (y > 5 ==> x > 7) && (y <= 5 ==> y - x > 7)
+    // WP(assume R, W) = R ==> W
+
+    // if (y > 5) {S1} else {S2}  ==  (assume y > 5; S1) [] (assume !(y > 5); S2)
+    // WP(S1 [] S2, Q) = WP(branch1, Q) && WP(branch2, Q)
+    //   W = (y > 5 ==> x > 7) && (y <= 5 ==> y - x > 7)
     if (y > 5) {
-        y := x - y     // WP: x > 7 (x is not changed)
+        // WP(assume y > 5, x > 7) = y > 5 ==> x > 7
+        // WP(y := x - y, x > 7) = (x > 7)[y / x - y]
+        //   = x > 7                                  (no y in x > 7)
+        y := x - y
     } else {
-        x := y - x     // WP: y - x > 7
+        // WP(assume !(y > 5), y - x > 7) = y <= 5 ==> y - x > 7
+        // WP(x := y - x, x > 7) = (x > 7)[x / y - x]
+        //   = y - x > 7
+        x := y - x
     }
+    // WP(assert x > 7, true) = x > 7 && true
+    //   = x > 7
     assert x > 7
 }
 
 method backwardD(x: Int) returns (y: Int)
     requires x <= 3 || x >= 17
+    // VC: Pre ==> WP holds (they are identical)
     ensures y % 2 == 0
+    // Q = y % 2 == 0
 {
+    // Outer if: (assume x < 17; inner) [] (assume !(x < 17); y := 6)
+    // WP = (x < 17 ==> x <= 3) && (x >= 17 ==> true)
+    //    = x < 17 ==> x <= 3
+    //    = x <= 3 || x >= 17
     if (x < 17) {
-        if (x > 3) {   // y := 1 is odd, so this branch must be unreachable: need x <= 3
+        // WP(assume x < 17, x <= 3) = x < 17 ==> x <= 3
+
+        // Inner if: (assume x > 3; y := 1) [] (assume !(x > 3); y := 2)
+        // WP = (x > 3 ==> false) && (x <= 3 ==> true)
+        //    = x <= 3
+        if (x > 3) {
+            // WP(assume x > 3, false) = x > 3 ==> false
+            //   = x <= 3
+            // WP(y := 1, Q) = (y % 2 == 0)[y / 1]
+            //   = 1 % 2 == 0
+            //   = false                (this branch must be unreachable)
             y := 1
         } else {
+            // WP(assume x <= 3, true) = x <= 3 ==> true
+            //   = true
+            // WP(y := 2, Q) = (y % 2 == 0)[y / 2]
+            //   = 2 % 2 == 0
+            //   = true
             y := 2
         }
     } else {
+        // WP(assume x >= 17, true) = x >= 17 ==> true
+        //   = true
+        // WP(y := 6, Q) = (y % 2 == 0)[y / 6]
+        //   = 6 % 2 == 0
+        //   = true
         y := 6
     }
 }
