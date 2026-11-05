@@ -1,50 +1,9 @@
-// =====================================================================
-//  Program Analysis for Software Security - Seminar 3 / Assignment 3
-//  Topic: loops - finding loop invariants (and variants)
-// =====================================================================
-//
+
 //  Method used (Lecture 5 - Loops, "A recipe for finding invariants")
-//
-//    1. Trace     run the loop by hand for a small input and write the
-//                 variables down at EVERY visit of the loop head
-//    2. Relate    look for an equation between the variables that holds
-//                 in every row of the table
-//    3. Generalise take the assertion after the loop and replace the
-//                 "final" value by the loop counter
-//    4. Bound     add the range of the loop variables
-//    5. Check     do the three checks by hand, then let Viper do them
-//
-//  The three checks for an invariant I of  while (b) { S }:
-//
-//    Check 1 (holds on entry)    : code before the loop  ==>  I
-//    Check 2 (preserved by body) : { I && b }  S  { I }
-//    Check 3 (strong enough)     : I && !b  ==>  assertion after the loop
-//
-//  Proof rule:      { I && b } S { I }
-//                -------------------------------
-//                { I } while (b) { S } { I && !b }
-//
-//  How Viper encodes a loop (Lecture 5, slide 37):
-//    assert I                       // check 1
-//    havoc the loop targets         // "forget" every variable assigned in S
-//    assume I
-//    { assume b; S; assert I; assume false }   // check 2
-//    []
-//    { assume !b }                  // continue after the loop -> check 3
-//  Variables NOT assigned in the loop keep their value (framing), so we do
-//  not need to repeat facts about them (e.g. N > 0) in the invariant.
-//
-//  Variant V (termination, not checked by Viper by default):
-//    (a) V >= 0 at the start of the body   (b) V strictly decreases in S
-//  For every loop the variant is argued in the comments.
-//
-//  Notation: in the hand proofs, x' denotes the value of x after the body.
-//  Note: in Viper, "/" between two Ints is a permission (fraction);
-//        integer division is written "\".
-// =====================================================================
+
 
 // =====================================================================
-// 1. INTEGER DIVISION WITH REMAINDER   (slide "07-...")
+// 1. INTEGER DIVISION WITH REMAINDER 
 //    Computes  res = M div N  and  m = M mod N  by repeated subtraction.
 // =====================================================================
 //
@@ -111,7 +70,7 @@ method division() {
 
 // =====================================================================
 // 2. MULTIPLICATION BY SHIFTING ("Russian peasant" / binary
-//    multiplication)   (slide "08-...")
+//    multiplication)  
 //    x is halved (right shift), y is doubled (left shift), and y is
 //    added to res whenever the lowest bit of x is 1.
 // =====================================================================
@@ -221,18 +180,6 @@ method multiplication() {
 //   argument below.
 //
 // Invariant:  0 <= res  &&  res * res <= n
-//
-// About the hint ("the specification admits programs that do not compute
-// the integer square root"):
-//   The real integer square root r satisfies  r*r <= n < (r+1)*(r+1)
-//   (strict "<" on the right). The assertion uses "<=", which is weaker.
-//   Example n = 4: the loop stops with res = 1, because (1+1)^2 < 4 is
-//   false. Then  1 <= 4 <= 4  holds, so the assertion passes, but the true
-//   square root of 4 is 2. So for every perfect square n = k*k > 0 the
-//   program returns k - 1, and the specification accepts it.
-//   This is why we must NOT try to prove n < (res+1)*(res+1): it is false
-//   for this program. The invariant only has to be strong enough for the
-//   specification that is actually written.
 
 method int_sqrt() {
     var n: Int
@@ -271,9 +218,7 @@ method int_sqrt() {
 // =====================================================================
 // 4. INTEGER SQUARE ROOT (fast version)
 // =====================================================================
-//
-// Same loop as exercise 3, but the expensive (res+1)*(res+1) is no longer
-// recomputed in every guard; x stores it and is updated by addition.
+
 //
 // Step 1 - Trace for n = 10 (values at the loop head):
 //
@@ -300,10 +245,6 @@ method int_sqrt() {
 // Step 4 - Bound: 0 <= res (for termination, as before).
 //
 // Invariant:  x == (res+1) * (res+1)  &&  0 <= res  &&  res * res <= n
-//
-// Hint: same remark as in exercise 3 - for n = 4 the loop ends with
-//   res = 1 (x = 4, and 4 < 4 is false), which is not the true square root
-//   but satisfies the (weak) assertion.
 
 method int_sqrt_fast() {
     var n: Int
