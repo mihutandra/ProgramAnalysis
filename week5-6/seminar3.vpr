@@ -1,0 +1,436 @@
+// =====================================================================
+//  Program Analysis for Software Security - Seminar 3 / Assignment 3
+//  Topic: loops - finding loop invariants (and variants)
+// =====================================================================
+//
+//  Method used (Lecture 5 - Loops, "A recipe for finding invariants")
+//
+//    1. Trace     run the loop by hand for a small input and write the
+//                 variables down at EVERY visit of the loop head
+//    2. Relate    look for an equation between the variables that holds
+//                 in every row of the table
+//    3. Generalise take the assertion after the loop and replace the
+//                 "final" value by the loop counter
+//    4. Bound     add the range of the loop variables
+//    5. Check     do the three checks by hand, then let Viper do them
+//
+//  The three checks for an invariant I of  while (b) { S }:
+//
+//    Check 1 (holds on entry)    : code before the loop  ==>  I
+//    Check 2 (preserved by body) : { I && b }  S  { I }
+//    Check 3 (strong enough)     : I && !b  ==>  assertion after the loop
+//
+//  Proof rule:      { I && b } S { I }
+//                -------------------------------
+//                { I } while (b) { S } { I && !b }
+//
+//  How Viper encodes a loop (Lecture 5, slide 37):
+//    assert I                       // check 1
+//    havoc the loop targets         // "forget" every variable assigned in S
+//    assume I
+//    { assume b; S; assert I; assume false }   // check 2
+//    []
+//    { assume !b }                  // continue after the loop -> check 3
+//  Variables NOT assigned in the loop keep their value (framing), so we do
+//  not need to repeat facts about them (e.g. N > 0) in the invariant.
+//
+//  Variant V (termination, not checked by Viper by default):
+//    (a) V >= 0 at the start of the body   (b) V strictly decreases in S
+//  For every loop the variant is argued in the comments.
+//
+//  Notation: in the hand proofs, x' denotes the value of x after the body.
+//  Note: in Viper, "/" between two Ints is a permission (fraction);
+//        integer division is written "\".
+// =====================================================================
+
+// =====================================================================
+// 1. INTEGER DIVISION WITH REMAINDER   (slide "07-...")
+//    Computes  res = M div N  and  m = M mod N  by repeated subtraction.
+// =====================================================================
+//
+// Step 1 - Trace for M = 7, N = 2 (values at the loop head):
+//
+//    visit | m | res | guard m >= 2 | res * N + m
+//    ------+---+-----+--------------+------------
+//      1   | 7 |  0  |    true      | 0 + 7 = 7
+//      2   | 5 |  1  |    true      | 2 + 5 = 7
+//      3   | 3 |  2  |    true      | 4 + 3 = 7
+//      4   | 1 |  3  |    false     | 6 + 1 = 7   -> exit
+//
+// Step 2 - Relate: m goes down by N while res goes up by 1, so the
+//   amount "res * N + m" never changes and is always equal to M.
+//   Every iteration moves one copy of N from m into res.
+//
+// Step 3 - Generalise: the assertion  M == res * N + m  is exactly that
+//   relation, so it is already the main part of the invariant.
+//
+// Step 4 - Bound: in the table m is never negative (0 <= m).
+//   This is not needed for the assertion, but it is what makes m the
+//   real remainder (at exit 0 <= m < N), and it is needed for termination.
+//
+// Invariant:  M == res * N + m  &&  0 <= m
+
+method division() {
+    var M: Int
+    var N: Int
+    var res: Int
+    
+    assume N > 0 && M >= 0
+    
+    var m: Int := M
+    res := 0
+    
+    // Check 1 (entry): m == M, res == 0
+    //   res * N + m = 0 * N + M = M            OK
+    //   0 <= m  <=>  0 <= M, true by the assume OK
+    while (m >= N)
+        invariant M == res * N + m
+        invariant 0 <= m
+    {
+        // Check 2 (preservation): assume  M == res * N + m && 0 <= m && m >= N
+        m := m - N
+        res := res + 1
+    //   m' = m - N, res' = res + 1
+    //   res' * N + m' = (res + 1) * N + (m - N)
+    //                 = res * N + N + m - N
+    //                 = res * N + m = M    OK
+    //   0 <= m' = m - N  because the guard gives m >= N       OK
+    }
+    
+    // Check 3 (exit): I && !b  =  M == res * N + m && 0 <= m && m < N
+    //   ==> M == res * N + m  (first conjunct)  OK
+    assert M == res * N + m
+    
+    // Extra (follows from the bound we added): m is the true remainder.
+    assert 0 <= m && m < N
+// Variant: V = m
+//   (a) at the start of the body m >= N > 0, so V >= 0
+//   (b) m' = m - N < m because N > 0 (N is not assigned in the loop,
+//       so the assume N > 0 is still known - framing)
+}
+
+// =====================================================================
+// 2. MULTIPLICATION BY SHIFTING ("Russian peasant" / binary
+//    multiplication)   (slide "08-...")
+//    x is halved (right shift), y is doubled (left shift), and y is
+//    added to res whenever the lowest bit of x is 1.
+// =====================================================================
+//
+// Step 1 - Trace for n = 6, m = 5 (n * m = 30):
+//
+//    visit | x | y  | res | x odd? | x * y | res + x * y
+//    ------+---+----+-----+--------+-------+------------
+//      1   | 6 |  5 |  0  |  no    |  30   |     30
+//      2   | 3 | 10 |  0  |  yes   |  30   |     30
+//      3   | 1 | 20 | 10  |  yes   |  20   |     30
+//      4   | 0 | 40 | 30  |   -    |   0   |     30   -> exit (x > 0 false)
+//
+// Step 2 - Relate: res alone is not n * m until the end, and x * y alone
+//   is not constant either (row 3). But their SUM is always 30 = n * m.
+//   Intuition: x * y is "the part of the product that is still left to
+//   add", res is "the part already added".
+//
+// Step 3 - Generalise: at the end x == 0, so  res + x * y == n * m
+//   becomes  res == n * m , which is the assertion.
+//
+// Step 4 - Bound: x never becomes negative (0 <= x). We need it at the
+//   exit: !(x > 0) only gives x <= 0, and with 0 <= x we get x == 0.
+//   Without the bound, x could be e.g. -3 and x * y would not vanish.
+//
+// Invariant:  res + x * y == n * m  &&  0 <= x
+
+method multiplication() {
+    var n: Int
+    var m: Int
+    var res: Int
+    
+    assume n >= 0 && m >= 0
+    
+    var x: Int := n
+    var y: Int := m
+    res := 0
+    
+    // Check 1 (entry): x == n, y == m, res == 0
+    //   res + x * y = 0 + n * m = n * m        OK
+    //   0 <= x  <=>  0 <= n, by the assume    OK
+    while (x > 0)
+        invariant res + x * y == n * m
+        invariant 0 <= x
+    {
+        // Check 2 (preservation): assume  res + x * y == n * m && 0 <= x && x > 0
+        //   Key fact about integer division by 2 (x >= 0):
+        //     x == 2 * (x \ 2) + x % 2,   with x % 2 in {0, 1}
+        //
+        //   Case x odd (x % 2 == 1):  x \ 2 == (x - 1) / 2
+        //     res' = res + y,  x' = (x - 1) / 2,  y' = 2 * y
+        //     res' + x' * y' = res + y + ((x - 1) / 2) * 2 * y
+        //                    = res + y + (x - 1) * y
+        //                    = res + x * y = n * m           OK
+        //
+        //   Case x even (x % 2 == 0):  x \ 2 == x / 2
+        //     res' = res,  x' = x / 2,  y' = 2 * y
+        //     res' + x' * y' = res + (x / 2) * 2 * y
+        //                    = res + x * y = n * m           OK
+        //
+        //   0 <= x' = x \ 2 because x > 0                    OK
+        if (x % 2 == 1) {
+            res := res + y
+        }
+        x := x \ 2
+        // right shift   (slide writes x / 2, see note on "\")
+        y := y * 2
+    // left shift
+    }
+    
+    // Check 3 (exit): I && !b  =  res + x * y == n * m && 0 <= x && x <= 0
+    //   ==> x == 0
+    //   ==> res + 0 * y == n * m
+    //   ==> res == n * m                       OK
+    assert res == n * m
+// Variant: V = x
+//   (a) guard x > 0, so V >= 0
+//   (b) x' = x \ 2 < x for every x > 0 (halving a positive number
+//       makes it strictly smaller)
+}
+
+// =====================================================================
+// 3. INTEGER SQUARE ROOT (slow version)
+// =====================================================================
+//
+// Step 1 - Trace for n = 10 (values at the loop head):
+//
+//    visit | res | res * res | (res+1)*(res+1) | guard (res+1)^2 < 10
+//    ------+-----+-----------+-----------------+---------------------
+//      1   |  0  |     0     |        1        |   true
+//      2   |  1  |     1     |        4        |   true
+//      3   |  2  |     4     |        9        |   true
+//      4   |  3  |     9     |       16        |   false -> exit
+//
+// Step 2 - Relate: in every row  res * res <= n  (0, 1, 4, 9 <= 10).
+//   The loop only increments res when the NEXT square (res+1)^2 is still
+//   below n, so the current square can never overshoot n.
+//
+// Step 3 - Generalise: the assertion has two parts:
+//     res * res <= n           -> must be carried by the invariant
+//     n <= (res+1) * (res+1)   -> this is exactly !guard, we get it for
+//                                 free at the exit (check 3)
+//   So the invariant only needs the first part.
+//
+// Step 4 - Bound: 0 <= res (res starts at 0 and only grows).
+//   Not needed for the assertion, but needed for the termination
+//   argument below.
+//
+// Invariant:  0 <= res  &&  res * res <= n
+//
+// About the hint ("the specification admits programs that do not compute
+// the integer square root"):
+//   The real integer square root r satisfies  r*r <= n < (r+1)*(r+1)
+//   (strict "<" on the right). The assertion uses "<=", which is weaker.
+//   Example n = 4: the loop stops with res = 1, because (1+1)^2 < 4 is
+//   false. Then  1 <= 4 <= 4  holds, so the assertion passes, but the true
+//   square root of 4 is 2. So for every perfect square n = k*k > 0 the
+//   program returns k - 1, and the specification accepts it.
+//   This is why we must NOT try to prove n < (res+1)*(res+1): it is false
+//   for this program. The invariant only has to be strong enough for the
+//   specification that is actually written.
+
+method int_sqrt() {
+    var n: Int
+    assume n >= 0
+    var res: Int
+    res := 0
+    
+    // Check 1 (entry): res == 0
+    //   0 <= 0                       OK
+    //   0 * 0 = 0 <= n  (assume)     OK
+    while ((res + 1) * (res + 1) < n)
+        invariant 0 <= res
+        invariant res * res <= n
+    {
+        // Check 2 (preservation): assume  0 <= res && res*res <= n
+        //                                 && (res+1)*(res+1) < n
+        res := res + 1
+    //   res' = res + 1
+    //   res' * res' = (res+1)*(res+1) < n, so res'*res' <= n   OK
+    //   0 <= res + 1 because 0 <= res                          OK
+    //   (note: the old fact res*res <= n is not even used - the
+    //    guard alone gives the new invariant)
+    }
+    
+    // Check 3 (exit): I && !b
+    //   = 0 <= res && res * res <= n && !((res+1)*(res+1) < n)
+    //   = 0 <= res && res * res <= n && n <= (res+1)*(res+1)
+    //   ==> assertion (2nd and 3rd conjuncts)     OK
+    assert res * res <= n && n <= (res + 1) * (res + 1)
+// Variant: V = n - res
+//   (a) from 0 <= res:  res + 1 <= (res+1)*(res+1) < n,
+//       so n - res > 1 >= 0
+//   (b) res' = res + 1, so V' = n - res - 1 < V
+}
+
+// =====================================================================
+// 4. INTEGER SQUARE ROOT (fast version)
+// =====================================================================
+//
+// Same loop as exercise 3, but the expensive (res+1)*(res+1) is no longer
+// recomputed in every guard; x stores it and is updated by addition.
+//
+// Step 1 - Trace for n = 10 (values at the loop head):
+//
+//    visit | res | x  | (res+1)*(res+1) | guard x < 10
+//    ------+-----+----+-----------------+-------------
+//      1   |  0  |  1 |        1        |   true
+//      2   |  1  |  4 |        4        |   true
+//      3   |  2  |  9 |        9        |   true
+//      4   |  3  | 16 |       16        |   false -> exit
+//
+// Step 2 - Relate: the x column equals the (res+1)^2 column in every row:
+//     x == (res + 1) * (res + 1)
+//   Why the update keeps it: the difference between two consecutive
+//   squares is   (r+2)^2 - (r+1)^2 = 2r + 3,  which is exactly what the
+//   body adds to x ("x := x + 2 * res + 3").
+//   With this relation the guard  x < n  IS the guard of exercise 3:
+//     (res+1)*(res+1) < n
+//   so the rest of the invariant is the one from exercise 3.
+//
+// Step 3 - Generalise: as in exercise 3, res * res <= n must be carried
+//   by the invariant; n <= (res+1)^2 comes from !guard together with the
+//   relation x == (res+1)^2.
+//
+// Step 4 - Bound: 0 <= res (for termination, as before).
+//
+// Invariant:  x == (res+1) * (res+1)  &&  0 <= res  &&  res * res <= n
+//
+// Hint: same remark as in exercise 3 - for n = 4 the loop ends with
+//   res = 1 (x = 4, and 4 < 4 is false), which is not the true square root
+//   but satisfies the (weak) assertion.
+
+method int_sqrt_fast() {
+    var n: Int
+    assume n >= 0
+    var res: Int
+    res := 0
+    var x: Int := 1
+    
+    // Check 1 (entry): res == 0, x == 1
+    //   x == (0+1)*(0+1) = 1         OK
+    //   0 <= 0                       OK
+    //   0 * 0 = 0 <= n               OK
+    while (x < n)
+        invariant x == (res + 1) * (res + 1)
+        invariant 0 <= res
+        invariant res * res <= n
+    {
+        // Check 2 (preservation): assume
+        //   x == (res+1)*(res+1) && 0 <= res && res*res <= n && x < n
+        x := x + 2 * res + 3
+        res := res + 1
+    //   x'   = x + 2*res + 3 = (res+1)^2 + 2*res + 3
+    //        = res^2 + 2*res + 1 + 2*res + 3 = res^2 + 4*res + 4
+    //        = (res + 2)^2 = (res' + 1)^2                   OK
+    //   res' * res' = (res+1)^2 = x < n  (guard), so <= n    OK
+    //   0 <= res + 1                                        OK
+    //   Note: x is updated with the OLD res, then res is incremented;
+    //   the computation above uses the old res accordingly.
+    }
+    
+    // Check 3 (exit): I && !b
+    //   = x == (res+1)*(res+1) && 0 <= res && res*res <= n && n <= x
+    //   ==> res * res <= n                         OK
+    //   ==> n <= x == (res+1)*(res+1)              OK
+    assert res * res <= n && n <= (res + 1) * (res + 1)
+// Variant: V = n - x
+//   (a) guard x < n, so n - x > 0
+//   (b) x' = x + 2*res + 3 >= x + 3 > x (because 0 <= res),
+//       so V' = n - x' < n - x = V
+//   Here we really need 0 <= res in the invariant: with a negative res,
+//   2*res + 3 could be <= 0 and x would not grow.
+}
+
+// =====================================================================
+// 5. SQUARE USING ONLY CONSTANTS AND "+ 1"
+// =====================================================================
+//
+// Idea: n * n = n + n + ... + n  (n times), and each "+ n" is itself
+//   1 + 1 + ... + 1  (n times). So we use two nested loops:
+//     - the outer loop counts i = 0 .. n   (how many n's are added)
+//     - the inner loop counts j = 0 .. n   (how many 1's of the current n)
+//   and res is incremented by 1 in the innermost body, n * n times total.
+//   Allowed statements only: x := 0  and  x := x + 1  (constants and +1).
+//
+// Step 1 - Trace for n = 3.
+//   Outer loop head:            Inner loop head during i = 1:
+//     i | res | i * n             j | res | i * n + j
+//     --+-----+------             --+-----+----------
+//     0 |  0  |   0               0 |  3  |    3
+//     1 |  3  |   3               1 |  4  |    4
+//     2 |  6  |   6               2 |  5  |    5
+//     3 |  9  |   9  -> exit      3 |  6  |    6   -> exit
+//
+// Step 2 - Relate:
+//   outer:  res == i * n    (i complete rows of n ones each)
+//   inner:  res == i * n + j (i complete rows + j ones of the current row)
+//
+// Step 3 - Generalise: the postcondition res == n * n is the outer
+//   relation with i replaced by n. The inner relation, at its exit
+//   (j == n), gives res == i * n + n = (i + 1) * n, i.e. one more row,
+//   which is what the outer relation needs after i := i + 1.
+//
+// Step 4 - Bound: 0 <= i <= n and 0 <= j <= n. The upper bounds are what
+//   turn !guard (i >= n, j >= n) into the equalities i == n, j == n at the
+//   exits (same situation as "i <= n + 1" in the lecture example).
+//
+// Outer invariant:  0 <= i && i <= n && res == i * n
+// Inner invariant:  0 <= j && j <= n && res == i * n + j
+//   (i and n are not assigned by the inner loop, so their values and the
+//    facts known about them, e.g. i < n from the outer guard, are kept by
+//    Viper - framing; we do not repeat them in the inner invariant.)
+
+method square(n: Int) returns (res: Int)
+    requires n >= 0
+    ensures res == n * n
+{
+    res := 0
+    var i: Int := 0
+    
+    // Outer check 1 (entry): i == 0, res == 0
+    //   0 <= 0 <= n  (precondition n >= 0)   OK
+    //   res == 0 * n = 0                    OK
+    while (i < n)
+        invariant 0 <= i && i <= n
+        invariant res == i * n
+    {
+        // Outer check 2: assume  0 <= i <= n && res == i * n && i < n
+        var j: Int := 0
+        
+        // Inner check 1 (entry): j == 0
+        //   0 <= 0 <= n                         OK
+        //   res == i * n + 0  (outer invariant) OK
+        while (j < n)
+            invariant 0 <= j && j <= n
+            invariant res == i * n + j
+        {
+            // Inner check 2: assume  0 <= j <= n && res == i*n + j && j < n
+            res := res + 1
+            j := j + 1
+        //   res' = res + 1 = i*n + j + 1 = i*n + j'       OK
+        //   j' = j + 1 <= n  because j < n               OK
+        //   0 <= j + 1                                   OK
+        }
+        
+        // Inner check 3 (exit): 0 <= j <= n && res == i*n + j && j >= n
+        //   ==> j == n ==> res == i*n + n = (i + 1) * n
+        i := i + 1
+    //   res == (i' - 1) * n + n = i' * n                   OK
+    //   i' = i + 1 <= n  because the outer guard i < n     OK
+    //   0 <= i + 1                                         OK
+    //   -> outer invariant preserved (outer check 2 done)
+    }
+// Outer check 3 (exit): 0 <= i <= n && res == i * n && i >= n
+//   ==> i == n ==> res == n * n  -> postcondition    OK
+
+// Variants:
+//   outer: V = n - i   (i < n so V > 0; i' = i + 1 so V decreases)
+//   inner: W = n - j   (j < n so W > 0; j' = j + 1 so W decreases)
+//   So the method performs exactly n * n increments of res and stops.
+}
