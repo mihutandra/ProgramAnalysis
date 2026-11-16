@@ -1,0 +1,100 @@
+// =====================================================================
+// Seminar 4 - Exercise 2: termination of McCarthy's 91 function
+// =====================================================================
+//
+// Task: use Viper to prove that M terminates.
+//
+// Step 1 - Trace, to see what happens (M(98)):
+//
+//   M(98)  -> M(109) = 99         -> M(99)
+//   M(99)  -> M(110) = 100        -> M(100)
+//   M(100) -> M(111) = 101        -> M(101) = 91
+//
+//   The argument n itself is NOT a good variant: the first call
+//   M(n + 11) makes n BIGGER. But in every recursive call n moves
+//   UP towards 100 (the "exit" of the recursion). So the DISTANCE to
+//   100 should be the thing that shrinks:
+//
+// Step 2 - Check (1) "bounded below".
+//   Recursive calls happen only in the else branch, where n <= 100,
+//   so V = 100 - n >= 0.                                         OK
+//   (In the then branch, n > 100 and V < 0, but there is no
+//    recursive call there, so V does not need to be bounded.)
+//
+// Step 3 - Check (2) "decreases" for each of the two calls.
+//
+// Step 4 - Preconditions of the recursive calls (requires n >= 0):
+//   M(n + 11): n >= 0  ==> n + 11 >= 0                          OK
+//   M(r)     : Case A r = n + 1 >= 1, Case B r = 91 >= 0        OK
+//
+// Step 5 - Postconditions (partial correctness), else branch, n <= 100:
+//   Case A (n >= 90): r1 = n + 1, so we call M(n + 1)
+//       - if n + 1 > 100 (n = 100): r = (n + 1) - 10 = 91         OK
+//       - if n + 1 <= 100        : r = 91                       OK
+//   Case B (n <= 89): r1 = 91, M(91) = 91 because 91 <= 100      OK
+//   Then branch (n > 100): r = n - 10, second ensures vacuous     OK
+// ---------------------------------------------------------------------
+
+method M(n: Int) returns (r: Int)
+    requires n >= 0
+    ensures  100 < n  ==> r == n - 10
+    ensures  n <= 100 ==> r == 91
+    decreases 100 - n          // the variant V (see Steps 1-3)
+{
+    if (n > 100) {
+        r := n - 10            // no recursive call -> nothing to check
+    } else {
+        // here n <= 100, so V = 100 - n >= 0   (check 1)
+        r := M(n + 11)         // 89 - n < 100 - n                (check 2)
+        // from the contract of this call: r > n (Case A / Case B)
+        r := M(r)              // 100 - r < 100 - n since r > n   (check 2)
+    }
+}
+
+
+// =====================================================================
+// The same proof, written with GHOST CODE (Lecture 7, "Encoding the
+// variant with ghost code").
+// =====================================================================
+
+method M_ghost(n: Int) returns (r: Int)
+    requires n >= 0
+    ensures  100 < n  ==> r == n - 10
+    ensures  n <= 100 ==> r == 91
+{
+    var v: Int := 100 - n          // value of the variant on entry
+
+    if (n > 100) {
+        r := n - 10
+    } else {
+        assert v >= 0              // check 1: bounded below (n <= 100)
+
+        assert 100 - (n + 11) < v  // check 2 for the first call
+        r := M_ghost(n + 11)
+
+        assert r > n               // key fact, from the postcondition
+        assert 100 - r < v         // check 2 for the second call
+        r := M_ghost(r)
+    }
+}
+
+
+// ---------------------------------------------------------------------
+// Small client, to show the contract is usable (both cases of ensures).
+// ---------------------------------------------------------------------
+method client() {
+    var a: Int
+    var b: Int
+    a := M(42)
+    assert a == 91           // second ensures, 42 <= 100
+    b := M(150)
+    assert b == 140          // first ensures, 150 > 100
+}
+
+// ---------------------------------------------------------------------
+// Experiment (kept as a comment): the "obvious" variant is wrong.
+//
+//     decreases n        ->  "Method might not terminate. Termination
+//                             measure might not decrease ..."
+//   because the first call M(n + 11) INCREASES n.
+// ---------------------------------------------------------------------

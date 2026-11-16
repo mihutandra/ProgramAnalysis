@@ -1,0 +1,80 @@
+// =====================================================================
+// Seminar 4 - Exercise 5: size as a Viper function with a postcondition
+// (based on the skeleton 10-trees.vpr)
+// =====================================================================
+//
+// Task:
+//   - add a function size(t: Tree): Int that counts the leaves of t
+//   - add a postcondition such that the client verifies:
+//         assert size(t) >= 0
+//
+// Difference to Exercise 3:
+//   In Exercise 3, size was an uninterpreted DOMAIN function, defined
+//   only by axioms. Here size is a normal Viper FUNCTION with a BODY,
+//   written outside the domain, using the destructors of Tree.
+//
+// ---------------------------------------------------------------------
+
+function size(t: Tree): Int
+    ensures result >= 1          // every tree has at least one leaf
+{
+    is_leaf(t) ? 1 : size(left(t)) + size(right(t))
+}
+
+method client() {
+    var t: Tree
+    t := node(node(leaf(3), leaf(17)), leaf(22))
+    assert size(t) >= 0          // follows from  ensures result >= 1
+}
+
+// Experiment (kept as a comment): without any postcondition
+//
+//   function size(t: Tree): Int
+//   { is_leaf(t) ? 1 : size(left(t)) + size(right(t)) }
+//
+// the assertion  size(t) >= 0  is reported as "Assertion might not hold"
+// for an arbitrary tree t, because proving it needs induction over the
+// whole tree. The postcondition is exactly that induction, done once.
+
+
+// same as 02-tree.vpr
+domain Tree {
+
+    // constructors
+    function leaf(value: Int): Tree               // base case
+    function node(left: Tree, right: Tree): Tree  // composite case
+
+    // discriminators (is_node is implicit via !is_leaf(t))
+    function is_leaf(t: Tree): Bool
+
+    // destructors
+    function value(t: Tree): Int
+    function left(t: Tree): Tree
+    function right(t: Tree): Tree
+
+    axiom def_is_leaf {
+        forall x: Int :: is_leaf(leaf(x))
+    }
+
+    axiom def_not_is_leaf {
+        forall l: Tree, r: Tree :: !is_leaf(node(l, r))
+    }
+
+    axiom all_variants {
+        forall t: Tree ::
+            (is_leaf(t) && exists x: Int :: t == leaf(x))
+            || (!is_leaf(t) && exists l: Tree, r: Tree :: t == node(l, r))
+    }
+
+    axiom value_over_leaf {
+        forall x: Int :: value(leaf(x)) == x
+    }
+
+    axiom left_over_node {
+        forall l: Tree, r: Tree :: left(node(l, r)) == l
+    }
+
+    axiom right_over_node {
+        forall l: Tree, r: Tree :: right(node(l, r)) == r
+    }
+}

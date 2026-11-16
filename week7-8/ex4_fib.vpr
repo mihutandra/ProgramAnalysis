@@ -1,0 +1,137 @@
+// =====================================================================
+// Seminar 4 - Exercise 4: Fibonacci (based on the skeleton 07-fib.vpr)
+// =====================================================================
+//
+// Task:
+//   - define a function fib(n) that yields the n-th Fibonacci number
+//         fib(0) = 0,  fib(1) = 1,  fib(n+2) = fib(n+1) + fib(n)
+//   - provide a suitable precondition
+//   - verify that the iterative method iter_fib computes fib(n)
+// ---------------------------------------------------------------------
+//
+// Part A - The function fib and its precondition
+//
+//   The recurrence only defines fib on 0, 1, 2, ...
+//   Without a precondition, fib(-1) = fib(-3) + fib(-2) = ... would
+//   recurse forever: the arguments go DOWN and never reach 0 or 1.
+//   So the suitable precondition is      requires 0 <= n
+//
+//   Termination (variant):               decreases n
+//     - both recursive calls are made only when n >= 2 (else branch),
+//       so n >= 0 there                                  (bounded) OK
+//     - fib(n - 2): n - 2 < n,  fib(n - 1): n - 1 < n    (smaller) OK
+//   Preconditions of the recursive calls, for n >= 2:
+//     0 <= n - 2 and 0 <= n - 1                                     OK
+//
+//   I also add  ensures result >= 0  : it is easy to prove by
+//   induction (sum of two non-negative numbers) and documents fib.
+// ---------------------------------------------------------------------
+
+function fib(n: Int): Int
+    requires 0 <= n
+    ensures  result >= 0
+    decreases n
+{
+    n < 2 ? n : fib(n - 2) + fib(n - 1)
+    //  n = 0 -> 0,  n = 1 -> 1          (base cases)
+    //  n >= 2 -> fib(n-2) + fib(n-1)    (same as fib(n+2) = fib(n+1) + fib(n),
+    //                                    shifted by 2)
+}
+
+// ---------------------------------------------------------------------
+// Part B - iter_fib
+//
+// Postcondition: what we want to prove is exactly the task:
+//     ensures res == fib(n)
+//
+// Finding the invariant (recipe from Lecture 5):
+//
+// Step 1 - Trace for n = 5 (values at the loop head):
+//
+//    visit | i | res | next | fib(i) | fib(i+1) | guard i < 5
+//    ------+---+-----+------+--------+----------+------------
+//      1   | 0 |  0  |  1   |   0    |    1     |   true
+//      2   | 1 |  1  |  1   |   1    |    1     |   true
+//      3   | 2 |  1  |  2   |   1    |    2     |   true
+//      4   | 3 |  2  |  3   |   2    |    3     |   true
+//      5   | 4 |  3  |  5   |   3    |    5     |   true
+//      6   | 5 |  5  |  8   |   5    |    8     |   false -> exit
+//
+// Step 2 - Relate: in every row  res == fib(i)  and  next == fib(i+1).
+//   The loop keeps a "window" of two consecutive Fibonacci numbers
+//   and slides it one position to the right in each iteration.
+//
+// Step 3 - Generalise: those two equalities are the invariant.
+//   We need next == fib(i+1) too, otherwise after  res := next  we
+//   would know nothing about the new res.
+//
+// Step 4 - Bounds: 0 <= i <= n.
+//   * 0 <= i is needed so that fib(i) is even well-defined
+//     (precondition of fib!) - Viper checks this inside the invariant.
+//   * i <= n is needed at the exit: from !(i < n) we get i >= n,
+//     together with i <= n this gives i == n, so res == fib(i) == fib(n).
+//
+// Invariant:  0 <= i <= n  &&  res == fib(i)  &&  next == fib(i + 1)
+// Variant  :  n - i   (>= 0 inside the loop, and i grows by 1)
+// ---------------------------------------------------------------------
+
+method iter_fib(n: Int) returns (res: Int)
+    requires 0 <= n
+    ensures  res == fib(n)
+{
+    res := 0
+    var i: Int := 0
+    var next: Int := 1
+
+    // Check 1 (entry): i == 0, res == 0, next == 1
+    //   0 <= 0 <= n                     by the precondition        OK
+    //   res == fib(0) == 0                                          OK
+    //   next == fib(1) == 1                                         OK
+    while (i < n)
+        invariant 0 <= i && i <= n
+        invariant res == fib(i)
+        invariant next == fib(i + 1)
+        decreases n - i
+    {
+        // Check 2 (preservation): assume the invariant and i < n.
+        var t: Int := res          // t    == fib(i)
+        res := next                // res  == fib(i + 1)
+        next := t + next           // next == fib(i) + fib(i + 1)
+        i := i + 1                 // i'   == i + 1
+        //
+        //   0 <= i' : i' = i + 1 >= 1                              OK
+        //   i' <= n : from the guard i < n, so i + 1 <= n          OK
+        //   res == fib(i')     : res = fib(i + 1) = fib(i')        OK
+        //   next == fib(i' + 1): by the definition of fib, since
+        //       i' + 1 = i + 2 >= 2:
+        //       fib(i + 2) = fib(i) + fib(i + 1) = t + old next    OK
+        //   variant: n - i' = n - i - 1 < n - i, and n - i > 0     OK
+    }
+
+    // Check 3 (exit): invariant && !(i < n)
+    //   i <= n && i >= n  ==>  i == n
+    //   res == fib(i) == fib(n)  -> postcondition                  OK
+}
+
+// Small client: the specification is strong enough to compute values.
+method client() {
+    var x: Int
+    x := iter_fib(6)
+    // From the contract we only know  x == fib(6).
+    //
+    // Viper unfolds the body of a recursive function only a limited
+    // number of times (otherwise fib(6) -> fib(4), fib(5) -> ... could
+    // unfold forever). A direct  assert x == 8  therefore fails: the
+    // verifier does not "run" fib all the way down to fib(0), fib(1).
+    //
+    // So I guide it bottom-up: each assert needs only ONE unfolding of
+    // fib and uses the two facts proved just before it.
+    assert fib(0) == 0
+    assert fib(1) == 1
+    assert fib(2) == 1      // fib(0) + fib(1)
+    assert fib(3) == 2      // fib(1) + fib(2)
+    assert fib(4) == 3      // fib(2) + fib(3)
+    assert fib(5) == 5      // fib(3) + fib(4)
+    assert fib(6) == 8      // fib(4) + fib(5)
+    assert x == 8
+}

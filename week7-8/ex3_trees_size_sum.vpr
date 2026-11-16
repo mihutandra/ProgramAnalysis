@@ -1,0 +1,139 @@
+// =====================================================================
+// Seminar 4 - Exercise 3: extend the Tree domain with size and sum
+// (based on the skeleton 03-trees.vpr)
+// =====================================================================
+//
+// Task:
+//   - size(t): number of leaves of t
+//   - sum(t) : sum of all values stored in the leaves of t
+//   - test against the client below
+//
+// Background:
+//   A Viper DOMAIN introduces a new type (Tree) with uninterpreted
+//   functions. They have NO body: everything the verifier knows about
+//   them comes from the AXIOMS. So "defining" size and sum means
+//   writing axioms that pin down their value on every tree.
+//
+// ---------------------------------------------------------------------
+// Step 1 - Recursive definitions, one equation per constructor:
+//
+//   size(leaf(x))    = 1                       a leaf is one leaf
+//   size(node(l, r)) = size(l) + size(r)       leaves of both subtrees
+//
+//   sum(leaf(x))     = x                       value stored in the leaf
+//   sum(node(l, r))  = sum(l) + sum(r)         values of both subtrees
+//
+//   Note: the commented "Option 2" in the skeleton had
+//   size(leaf(x)) == 0, which is wrong for "number of leaves"
+//   (with it the client would compute size(t) == 0, not 3).
+//
+// Step 2 - Which style of axiom?
+//
+// Step 3 - Hand evaluation of the client (what the solver must find):
+//
+//   t = node( node(leaf(3), leaf(17)), leaf(22) )
+//
+//   size(t) = size(node(leaf(3), leaf(17))) + size(leaf(22))   [node]
+//           = (size(leaf(3)) + size(leaf(17))) + 1             [node, leaf]
+//           = (1 + 1) + 1 = 3                                  [leaf]
+//
+//   sum(t)  = sum(node(leaf(3), leaf(17))) + sum(leaf(22))     [node]
+//           = (sum(leaf(3)) + sum(leaf(17))) + 22              [node, leaf]
+//           = (3 + 17) + 22 = 42                               [leaf]
+// ---------------------------------------------------------------------
+
+method client() {
+    var t: Tree
+    t := node(node(leaf(3), leaf(17)), leaf(22))
+
+    assert sum(t) == 42     // 3 + 17 + 22, see Step 3
+    assert size(t) == 3     // three leaves, see Step 3
+}
+
+// Sanity check: the new axioms must not be contradictory (if they were,
+// "assert false" would verify and every client would pass trivially).
+// I checked that each of the following FAILS, as it should
+// (uncomment one at a time to repeat the check):
+//
+//   method sanity() {
+//       var t: Tree := node(node(leaf(3), leaf(17)), leaf(22))
+//       assert sum(t) == 41      // fails  -> axioms are not vacuous
+//       assert size(t) == 2      // fails
+//       assert false             // fails  -> axioms are consistent
+//   }
+
+
+domain Tree {
+
+    // ------------------------------------------------------------
+    // NEW: the two functions asked for in the exercise
+    // ------------------------------------------------------------
+    function size(t: Tree): Int     // number of leaves
+    function sum(t: Tree): Int      // sum of the values in the leaves
+
+    // size - base case: a single leaf counts as 1
+    axiom size_leaf {
+        forall x: Int :: { size(leaf(x)) }
+            size(leaf(x)) == 1
+    }
+
+    // size - composite case: leaves of the left + leaves of the right
+    axiom size_node {
+        forall l: Tree, r: Tree :: { size(node(l, r)) }
+            size(node(l, r)) == size(l) + size(r)
+    }
+
+    // sum - base case: a leaf contributes its own value
+    axiom sum_leaf {
+        forall x: Int :: { sum(leaf(x)) }
+            sum(leaf(x)) == x
+    }
+
+    // sum - composite case: sum of the left + sum of the right
+    axiom sum_node {
+        forall l: Tree, r: Tree :: { sum(node(l, r)) }
+            sum(node(l, r)) == sum(l) + sum(r)
+    }
+
+    // ------------------------------------------------------------
+    // Unchanged: the Tree axiomatization from 02-tree.vpr
+    // ------------------------------------------------------------
+
+    // constructors
+    function leaf(value: Int): Tree               // base case
+    function node(left: Tree, right: Tree): Tree  // composite case
+
+    // discriminators (is_node is implicit via !is_leaf(t))
+    function is_leaf(t: Tree): Bool
+
+    // destructors
+    function value(t: Tree): Int
+    function left(t: Tree): Tree
+    function right(t: Tree): Tree
+
+    axiom def_is_leaf {
+        forall x: Int :: is_leaf(leaf(x))
+    }
+
+    axiom def_not_is_leaf {
+        forall l: Tree, r: Tree :: !is_leaf(node(l, r))
+    }
+
+    axiom all_variants {
+        forall t: Tree ::
+            (is_leaf(t) && exists x: Int :: t == leaf(x))
+            || (!is_leaf(t) && exists l: Tree, r: Tree :: t == node(l, r))
+    }
+
+    axiom value_over_leaf {
+        forall x: Int :: value(leaf(x)) == x
+    }
+
+    axiom left_over_node {
+        forall l: Tree, r: Tree :: left(node(l, r)) == l
+    }
+
+    axiom right_over_node {
+        forall l: Tree, r: Tree :: right(node(l, r)) == r
+    }
+}
